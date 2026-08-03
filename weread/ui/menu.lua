@@ -2,6 +2,7 @@
 local BD = require("ui/bidi")
 local ButtonDialog = require("ui/widget/buttondialog")
 local ConfirmBox = require("ui/widget/confirmbox")
+local Device = require("device")
 local Dispatcher = require("dispatcher")
 local InfoMessage = require("ui/widget/infomessage")
 local logger = require("weread.lib.logger")
@@ -47,28 +48,10 @@ function M:addToMainMenu(menu_items)
 end
 
 function M:getMainMenuItems()
+    local is_touch = Device:isTouchDevice()
+
+    -- High-frequency items first for key-navigation efficiency
     local items = {
-        {
-            text_func = function()
-                local account = self.settings:get("account", {})
-                if account.login_method == "qr" and tonumber(account.login_time or 0) > 0 then
-                    local name = type(account.name) == "string" and account.name or ""
-                    if name == "" then name = _("Unknown account") end
-                    return T(_("Logged in · %1"), name)
-                end
-                return _("QR code login")
-            end,
-            keep_menu_open = true,
-            callback = self:safeCallback(_("QR login"), function(touchmenu_instance)
-                self._login_menu_instance = touchmenu_instance
-                local account = self.settings:get("account", {})
-                if account.login_method == "qr" and tonumber(account.login_time or 0) > 0 then
-                    self:showAccountStatus()
-                else
-                    self.qr_login:start()
-                end
-            end),
-        },
         {
             text = _("Bookshelf"),
             callback = self:safeCallback(_("Bookshelf"), function()
@@ -102,6 +85,30 @@ function M:getMainMenuItems()
                 return self:getSettingsMenuItems()
             end,
         },
+        -- Low-frequency items at the end
+        {
+            text_func = function()
+                local account = self.settings:get("account", {})
+                if (account.login_method == "qr" or account.login_method == "manual")
+                    and tonumber(account.login_time or 0) > 0 then
+                    local name = type(account.name) == "string" and account.name or ""
+                    if name == "" then name = _("Unknown account") end
+                    return T(_("Logged in · %1"), name)
+                end
+                return _("QR code login")
+            end,
+            keep_menu_open = true,
+            callback = self:safeCallback(_("QR login"), function(touchmenu_instance)
+                self._login_menu_instance = touchmenu_instance
+                local account = self.settings:get("account", {})
+                if (account.login_method == "qr" or account.login_method == "manual")
+                    and tonumber(account.login_time or 0) > 0 then
+                    self:showAccountStatus()
+                else
+                    self.qr_login:start()
+                end
+            end),
+        },
         {
             text = T(_("About (v%1)"), self.version),
             callback = function()
@@ -112,6 +119,7 @@ function M:getMainMenuItems()
         },
     }
 
+    -- Insert document-specific items after Bookshelf (position 2+)
     if self.ui.document then
         table.insert(items, 2, {
             text = _("Sync progress now"),
@@ -129,37 +137,38 @@ function M:getMainMenuItems()
                 self:showCurrentBookDetails()
             end),
         })
-        table.insert(items, 4, {
-            text = _("Show underlines and thoughts"),
-            checked_func = function()
-                return self.settings:get("cache").show_annotations ~= false
-            end,
-            keep_menu_open = true,
-            callback = self:safeCallback(_("Show underlines and thoughts"), function()
-                local cache = self.settings:get("cache")
-                cache.show_annotations = not (cache.show_annotations ~= false)
-                self.settings:set("cache", cache)
-                self.settings:flush()
-                logger.info(
-                    "annotation visibility changed:",
-                    "show=", tostring(cache.show_annotations)
-                )
-                -- Keep the tap interception registered in both states; hiding is
-                -- handled by _onThoughtTap. Just close any popup already showing.
-                if not cache.show_annotations then
-                    ThoughtPopup.closeVisible()
-                    self._thought_popup_open = nil
-                end
-                self:applyAnnotationVisibility()
-            end),
-        })
+        -- "Show underlines and thoughts" requires tap on underlines — touch devices only
+        if is_touch then
+            table.insert(items, 4, {
+                text = _("Show underlines and thoughts"),
+                checked_func = function()
+                    return self.settings:get("cache").show_annotations ~= false
+                end,
+                keep_menu_open = true,
+                callback = self:safeCallback(_("Show underlines and thoughts"), function()
+                    local cache = self.settings:get("cache")
+                    cache.show_annotations = not (cache.show_annotations ~= false)
+                    self.settings:set("cache", cache)
+                    self.settings:flush()
+                    logger.info(
+                        "annotation visibility changed:",
+                        "show=", tostring(cache.show_annotations)
+                    )
+                    if not cache.show_annotations then
+                        ThoughtPopup.closeVisible()
+                        self._thought_popup_open = nil
+                    end
+                    self:applyAnnotationVisibility()
+                end),
+            })
+        end
     end
 
     return items
 end
 
 function M:getSettingsMenuItems()
-    return {
+    local items = {
         {
             text = _("Cache management"),
             sub_item_table_func = function()
@@ -403,7 +412,11 @@ function M:getSettingsMenuItems()
                 }
             end,
         },
-        {
+    }
+
+    -- "Thoughts" settings (edge tap configuration) are touch-only
+    if Device:isTouchDevice() then
+        table.insert(items, {
             text = _("Thoughts"),
             sub_item_table_func = function()
                 return {
@@ -442,35 +455,66 @@ function M:getSettingsMenuItems()
                     },
                 }
             end,
-        },
-        {
-            text = _("Account management"),
-            sub_item_table_func = function()
-                return {
-                    {
-                        text = _("Account status"),
-                        callback = self:safeCallback(_("Account status"), function()
-                            self:showAccountStatus()
-                        end),
-                    },
-                    {
-                        text = _("Renew cookie now"),
-                        keep_menu_open = true,
-                        callback = self:safeCallback(_("Renew cookie now"), function()
-                            self:renewCookieWithUI()
-                        end),
-                    },
-                    {
-                        text = _("Clear account data"),
-                        keep_menu_open = true,
-                        callback = self:safeCallback(_("Clear account data"), function()
-                            self:confirmClearAccount()
-                        end),
-                    },
-                }
-            end,
-        },
-    }
+        })
+    end
+
+    table.insert(items, {
+        text = _("Account management"),
+        sub_item_table_func = function()
+            return {
+                {
+                    text = _("Account status"),
+                    callback = self:safeCallback(_("Account status"), function()
+                        self:showAccountStatus()
+                    end),
+                },
+                {
+                    text = _("Manual login"),
+                    sub_item_table_func = function()
+                        return {
+                            {
+                                text = _("Configuration guide"),
+                                keep_menu_open = true,
+                                callback = self:safeCallback(_("Configuration guide"), function()
+                                    self:showManualLoginGuide()
+                                end),
+                            },
+                            {
+                                text = _("Generate template"),
+                                keep_menu_open = true,
+                                callback = self:safeCallback(_("Generate template"), function()
+                                    self:generateManualLoginTemplate()
+                                end),
+                            },
+                            {
+                                text = _("Import now"),
+                                keep_menu_open = true,
+                                callback = self:safeCallback(_("Import now"), function()
+                                    self:importManualLogin()
+                                end),
+                            },
+                        }
+                    end,
+                },
+                {
+                    text = _("Renew cookie now"),
+                    keep_menu_open = true,
+                    callback = self:safeCallback(_("Renew cookie now"), function()
+                        self:renewCookieWithUI()
+                    end),
+                },
+                {
+                    text = _("Clear account data"),
+                    keep_menu_open = true,
+                    callback = self:safeCallback(_("Clear account data"), function()
+                        self:confirmClearAccount()
+                    end),
+                },
+            }
+        end,
+    })
+
+    return items
 end
 
 -- Let the user pick how wide the left/right page-turn edge zone is (percent of

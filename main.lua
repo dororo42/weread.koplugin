@@ -5,8 +5,6 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 
 local Client = require("weread.lib.client")
 local Downloader = require("weread.lib.downloader")
-local Integrations = require("integrations.init")
-local LibraryDB = require("weread.lib.library_db")
 local Mixin = require("weread.lib.mixin")
 local Migrations = require("weread.lib.migrations")
 local PluginUtil = require("weread.lib.plugin_util")
@@ -24,25 +22,16 @@ local WeReadPlugin = WidgetContainer:extend{
     version = "0.1.1",
 }
 
--- Stable entry point used by third-party launchers such as SimpleUI and ZenUI.
-function WeReadPlugin:openBookshelf()
-    return self:showBookshelf()
-end
-
--- Both SimpleUI and ZenUI discover conventional plugin launch methods.
-function WeReadPlugin:launch()
-    return self:openBookshelf()
-end
-
-function WeReadPlugin:onZenUIReady()
-    Integrations.onZenUIReady(self)
-    return true
-end
-
 function WeReadPlugin:init()
     math.randomseed(os.time())
     self.settings = Settings:new()
-    self.library_db = LibraryDB:new(self.settings)
+    -- Auto-import manual login template if the user filled one in via USB.
+    local manual_imported, manual_err = self.settings:import_manual_login()
+    if manual_imported then
+        logger.info("manual login credentials imported from template")
+    elseif manual_err ~= "not_found" then
+        logger.warn("manual login import skipped:", tostring(manual_err))
+    end
     self.client = Client:new(self.settings)
     self.downloader = Downloader:new{
         client = self.client,
@@ -148,8 +137,6 @@ function WeReadPlugin:init()
     }
     self:onDispatcherRegisterActions()
     self.ui.menu:registerToMainMenu(self)
-    self.integrations = Integrations
-    self.integrations.register(self)
     local read_report = self.settings:get("read_report")
     if read_report.enabled
         and read_report.mode == "manual"

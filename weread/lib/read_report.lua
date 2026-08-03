@@ -16,6 +16,11 @@ local JOB_POLL_INITIAL_SECONDS = 0.25
 local JOB_POLL_MAX_SECONDS = 2
 local JOB_TIMEOUT_SECONDS = 180
 local JOB_COLLECT_INTERVAL_SECONDS = 2
+-- When a scheduled tick fires this much later than expected, the device was
+-- likely suspended without KOReader detecting it (onSuspend never fired).
+-- In that case the accumulated "reading time" is actually sleep time and must
+-- not be reported. 2× interval gives normal scheduler jitter room.
+local SUSPEND_DETECTION_MULTIPLIER = 2
 
 -- Context fields that the subprocess sends back for the parent to persist.
 -- Mirrors the scalar reading-state fields stored by BookStore; the chapter
@@ -200,6 +205,18 @@ function ReadReport:_interval()
     return math.max(MIN_INTERVAL_SECONDS, interval)
 end
 
+-- Compute the actual elapsed reading time since the last successful report.
+-- When the device was offline (but actively reading), the next online report
+-- should include the accumulated time instead of just one interval.
+function ReadReport:_elapsed_since_last_report()
+    local interval = self:_interval()
+    if not self.last_time then
+        return interval
+    end
+    local elapsed = self.now() - self.last_time
+    return math.max(interval, elapsed)
+end
+
 function ReadReport:status()
     return {
         running = self.task ~= nil,
@@ -329,6 +346,9 @@ function ReadReport:start(reason)
     self.state = "waiting"
     self.stop_reason = nil
     self.last_skip = nil
+    -- Reset last_time so the first report of a new session uses the default
+    -- interval instead of inheriting elapsed time from a previous session.
+    self.last_time = nil
 
     local task
     task = function()
@@ -338,7 +358,9 @@ function ReadReport:start(reason)
         self:_tick(generation, task)
     end
     self.task = task
-    self.scheduler:scheduleIn(self:_interval(), task)
+    local interval = self:_interval()
+    self.next_tick_expected = self.now() + interval
+    self.scheduler:scheduleIn(interval, task)
     log("info", "reading time report started:",
         "reason=", reason or "unknown",
         "book_id=", book_id,
@@ -357,6 +379,7 @@ function ReadReport:stop(reason)
     if self.job then
         self:_abandon_job(self.job)
     end
+    self.next_tick_expected = nil
     self.state = reason == "suspend" and "suspended"
         or "stopped"
     self.stop_reason = reason
@@ -402,11 +425,26 @@ end
 
 function ReadReport:_schedule_next(generation, task)
     if self.generation == generation and self.task == task then
-        self.scheduler:scheduleIn(self:_interval(), task)
+        local interval = self:_interval()
+        self.next_tick_expected = self.now() + interval
+        self.scheduler:scheduleIn(interval, task)
     end
 end
 
 function ReadReport:_tick(generation, task)
+    -- Detect undetected suspend: if the tick fired much later than expected,
+    -- the device was likely sleeping without onSuspend firing. Reset
+    -- last_time so the accumulated sleep duration is not reported as reading.
+    if self.next_tick_expected then
+        local delay = self.now() - self.next_tick_expected
+        local threshold = self:_interval() * SUSPEND_DETECTION_MULTIPLIER
+        if delay > threshold then
+            log("info", "read report tick delayed beyond threshold, likely suspend:",
+                "delay=", delay, "threshold=", threshold)
+            self.last_time = nil
+        end
+    end
+    self.next_tick_expected = nil
     local ok, err = pcall(function()
         local proceed, book_id, position = self:_precheck()
         if not proceed then
@@ -420,8 +458,9 @@ function ReadReport:_tick(generation, task)
             return
         end
         local allow_renewal = self:_renewal_allowed()
+        local elapsed_seconds = self:_elapsed_since_last_report()
         local spawned, spawn_err = self:_start_job(
-            book_id, allow_renewal, generation, task, position)
+            book_id, allow_renewal, generation, task, position, elapsed_seconds)
         if spawned then
             return
         end
@@ -433,6 +472,7 @@ function ReadReport:_tick(generation, task)
         local outcome = self:_run_pipeline(book_id, {
             allow_renewal = allow_renewal,
             position = position,
+            elapsed_seconds = elapsed_seconds,
         })
         self:_apply_outcome(outcome)
         self:_schedule_next(generation, task)
@@ -525,13 +565,13 @@ end
 -- Subprocess job management (parent side)
 -- ------------------------------------------------------------------
 
-function ReadReport:_start_job(book_id, allow_renewal, generation, task, position)
+function ReadReport:_start_job(book_id, allow_renewal, generation, task, position, elapsed_seconds)
     local runner = self.subprocess
     if not runner then
         return false, "no subprocess support"
     end
     local pid, read_fd = runner.run(function(_pid, child_write_fd)
-        local outcome = self:_child_report(book_id, allow_renewal, position)
+        local outcome = self:_child_report(book_id, allow_renewal, position, elapsed_seconds)
         local ok, encoded = pcall(function()
             return self.client:json_encode(outcome)
         end)
@@ -750,7 +790,7 @@ end
 -- Child entry point. Neuters settings persistence inside the fork and
 -- captures auth changes (Set-Cookie merges, cookie renewal) so the parent
 -- can persist them from the outcome.
-function ReadReport:_child_report(book_id, allow_renewal, position)
+function ReadReport:_child_report(book_id, allow_renewal, position, elapsed_seconds)
     self._no_persist = true
     self.settings.flush = function() end
     local auth_changed = false
@@ -766,6 +806,7 @@ function ReadReport:_child_report(book_id, allow_renewal, position)
         return self:_run_pipeline(book_id, {
             allow_renewal = allow_renewal,
             position = position,
+            elapsed_seconds = elapsed_seconds,
         })
     end)
     if not ok then

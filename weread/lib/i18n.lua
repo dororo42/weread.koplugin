@@ -108,20 +108,21 @@ local zh = {
     ["%1 words"] = "%1 字",
     ["Chapter list"] = "章节目录",
     ["Refresh chapter list"] = "刷新章节目录",
-    ["↻ Refresh chapter list"] = "↻ 刷新章节目录",
     ["Chapter list refreshed: %1 chapters"] = "章节目录已刷新：%1 章",
     ["No chapters."] = "没有章节。",
-    ["Select chapters to download"] = "选择多个章节下载",
-    ["✓ Select chapters to download"] = "✓ 选择多个章节下载",
+    ["Select chapters to download"] = "选择章节下载",
     ["Download selected chapters"] = "下载已选章节",
+    ["[Action] Refresh chapter list"] = "【操作】↻ 刷新章节目录",
+    ["[Action] Select chapters to download"] = "【操作】✓ 选择章节下载",
     ["[Download] Selected chapters (%1)"] = "【下载】已选 %1 章",
     ["Selected"] = "已选择",
     ["Download chapter and read"] = "下载本章并阅读",
+    ["Open cached book"] = "打开已缓存书籍",
     ["Download full book"] = "下载全书",
     ["Download all %1 chapters as one EPUB?"] = "将全部 %1 章下载为一个 EPUB？",
     ["Download %1 selected chapter(s)?"] = "下载选中的 %1 个章节？",
-    ["A book with many chapters may take a long time. Prefer single- or multi-chapter downloads when possible."] = "全书下载耗时长，建议使用章节缓存或预下载。",
-    ["Downloading underlines and thoughts may significantly increase download time."] = "下载划线和想法会显著延长下载时间。",
+    ["A book with many chapters may take a long time. Prefer single- or multi-chapter downloads when possible."] = "书籍章节较多时，全书下载可能耗时很长。建议优先使用单章或多章下载。",
+    ["Downloading underlines and thoughts adds requests for every chapter and may significantly increase download time."] = "下载划线和想法会为每章增加额外请求，可能显著延长下载时间。",
     ["Download text only"] = "仅下载正文",
     ["Download with underlines and thoughts"] = "下载正文、划线和想法",
     ["Download"] = "下载",
@@ -162,42 +163,9 @@ local zh = {
     ["WeRead progress synced."] = "微信读书进度已同步。",
     ["Progress request sent, but response did not include succ=1."] = "进度请求已发送，但响应里没有 succ=1。",
     ["Books"] = "书籍",
-    ["Books (%1)"] = "书籍 %1",
     ["%1 books"] = "%1 本书",
     ["Public Accounts"] = "公众号",
-    ["Public Accounts (%1)"] = "公众号 %1",
     ["%1 accounts"] = "%1 个公众号",
-    ["Search shelf"] = "搜索书架",
-    ["⌕ Search shelf"] = "⌕ 搜索书架",
-    ["⌕ Search: %1"] = "⌕ 搜索：%1",
-    ["No shelf matches."] = "书架内没有匹配内容。",
-    ["Get latest"] = "获取最新",
-    ["↻ Get latest"] = "↻ 获取最新",
-    ["⇅ Sort"] = "⇅ 排序",
-    ["⇅ Sort: %1"] = "⇅ 排序：%1",
-    ["▾ Filter"] = "▾ 筛选",
-    ["▾ Filter: %1"] = "▾ 筛选：%1",
-    ["Newest"] = "最近阅读",
-    ["Oldest"] = "最早阅读",
-    ["Default"] = "默认",
-    ["Downloaded"] = "已下载",
-    ["Get latest information"] = "获取最新信息",
-    ["↻ Get latest information"] = "↻ 获取最新信息",
-    ["Book information updated."] = "书籍信息已更新。",
-    ["Book information"] = "书籍信息",
-    ["More actions"] = "更多操作",
-    ["Read"] = "阅读",
-    ["⇩ Download full book"] = "⇩ 下载全书",
-    ["☷ Chapter list"] = "☷ 章节目录",
-    ["▤ Read"] = "▤ 阅读",
-    ["%1: %2"] = "%1：%2",
-    ["Translated by %1"] = "%1 译",
-    ["Progress %1%"] = "进度 %1%",
-    ["✓ Cached locally"] = "✓ 已缓存到本地",
-    ["Cached %1/%2 chapters"] = "已缓存 %1/%2 章",
-    ["%1 chapters cached"] = "已缓存 %1 章",
-    ["Never updated"] = "尚未更新",
-    ["Last updated"] = "更新于",
     ["Public Account"] = "公众号",
     ["Loading articles..."] = "正在加载文章列表...",
     ["Load articles failed:\n%1"] = "加载文章列表失败：\n%1",
@@ -214,6 +182,11 @@ local zh = {
     ["Report book: %1\nStatus: %2"] = "上报书籍：%1\n状态：%2",
     ["Running"] = "运行中",
     ["Stopped"] = "已停止",
+    ["Offline"] = "离线",
+    ["Suspended"] = "已暂停",
+    ["Waiting for progress"] = "等待进度验证",
+    ["Waiting"] = "等待中",
+    ["Error"] = "错误",
     ["Reported: %1 times, last: %2"] = "已上报：%1 次，最近：%2",
     ["Last error: %1"] = "最近错误：%1",
     ["Only report when reading"] = "仅在阅读时上报",
@@ -363,6 +336,75 @@ local zh = {
     ["%1 h %2 min"] = "%1 小时 %2 分钟",
     ["%1 h"] = "%1 小时",
     ["%1 min"] = "%1 分钟",
+    -- Manual login
+    ["Manual login"] = "手动配置登录",
+    ["Configuration guide"] = "配置说明",
+    ["Generate template"] = "生成配置模板",
+    ["Import now"] = "立即导入",
+    ["Template generated at:\n%1\n\nConnect via USB, edit the file,\nthen restart KOReader or use \"Import now\"."] = "配置模板已生成：\n%1\n\n通过 USB 连接 Kindle，编辑该文件，\n然后重启 KOReader 或使用\"立即导入\"。",
+    ["Failed to generate template: %1"] = "生成模板失败：%1",
+    ["Manual login imported successfully."] = "手动登录凭证已成功导入。",
+    ["No manual login file found.\nGenerate a template first."] = "未找到手动登录文件。\n请先生成配置模板。",
+    ["Template not filled in.\nEdit the file and replace YOUR_xxx placeholders."] = "配置模板尚未填写。\n请编辑文件并替换 YOUR_xxx 占位符。",
+    ["Manual login file has invalid format.\nPlease check the Lua syntax."] = "手动登录文件格式无效。\n请检查 Lua 语法。",
+    ["Import failed: %1"] = "导入失败：%1",
+    [ [[Manual login guide:
+
+1. Select "Generate template" to create
+   weread_manual_login.lua in settings dir
+
+2. Connect Kindle via USB and edit:
+   koreader/settings/weread_manual_login.lua
+
+3. Fill in credentials (replace YOUR_xxx):
+   api_key  — WeRead API Key
+   wr_skey  — WeRead Cookie
+   wr_vid   — WeRead user ID
+   wr_rt    — Refresh token (optional)
+   name     — Your nickname (optional)
+
+4. How to get credentials:
+   a. Open https://weread.qq.com in browser
+      Login with WeChat QR
+   b. Press F12
+      Application → Cookies → weread.qq.com
+   c. Copy wr_skey, wr_vid, wr_rt values
+   d. API Key:
+      WeRead App → Me → Settings
+      → WeRead Skill → Get API Key
+
+5. Save file and restart KOReader
+   Plugin auto-imports and deletes template
+
+6. Or select "Import now" (no restart needed)]] ] = [[手动配置登录说明：
+
+1. 选择"生成配置模板"
+   将在设置目录创建 weread_manual_login.lua
+
+2. USB 连接 Kindle，编辑文件：
+   koreader/settings/weread_manual_login.lua
+
+3. 填写凭证（替换 YOUR_xxx）：
+   api_key  — 微信读书 API Key
+   wr_skey  — 微信读书 Cookie
+   wr_vid   — 微信读书用户 ID
+   wr_rt    — 刷新令牌（可选）
+   name     — 昵称（可选）
+
+4. 获取凭证：
+   a. 浏览器打开 https://weread.qq.com
+      微信扫码登录
+   b. 按 F12
+      Application → Cookies → weread.qq.com
+   c. 复制 wr_skey、wr_vid、wr_rt
+   d. API Key：
+      微信读书 App → 我 → 设置
+      → 微信读书 Skill → 获取 API Key
+
+5. 保存后重启 KOReader
+   插件自动导入并删除模板文件
+
+6. 或选择"立即导入"（无需重启）]],
 }
 
 function I18n.language()

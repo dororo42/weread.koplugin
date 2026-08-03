@@ -294,4 +294,109 @@ function Settings:is_api_configured()
     return self:get("api_key", "") ~= ""
 end
 
+-- Path to the manual login template file in the KOReader settings directory.
+-- Users edit this file via USB; the plugin imports and deletes it on next launch.
+function Settings:get_manual_login_path()
+    return DataStorage:getSettingsDir() .. "/weread_manual_login.lua"
+end
+
+-- Check for a filled-in manual login template and import its credentials.
+-- Returns true on success, or (false, reason) otherwise.
+--   "not_found"      – no template file present
+--   "invalid_format" – Lua syntax error or non-table result
+--   "not_filled"     – required fields missing or still placeholders
+function Settings:import_manual_login()
+    local path = self:get_manual_login_path()
+    if not lfs.attributes(path, "mode") then
+        return false, "not_found"
+    end
+
+    local ok_load, chunk = pcall(loadfile, path)
+    if not ok_load or type(chunk) ~= "function" then
+        return false, "invalid_format"
+    end
+    local ok_run, data = pcall(chunk)
+    if not ok_run or type(data) ~= "table" then
+        return false, "invalid_format"
+    end
+
+    local api_key = type(data.api_key) == "string" and data.api_key or ""
+    local cookies = type(data.cookies) == "table" and data.cookies or {}
+    local wr_skey = type(cookies.wr_skey) == "string" and cookies.wr_skey or ""
+    local wr_vid  = type(cookies.wr_vid)  == "string" and cookies.wr_vid  or ""
+
+    -- Reject empty values and unfilled placeholders.
+    if api_key == "" or api_key:find("YOUR_")
+        or wr_skey == "" or wr_skey:find("YOUR_")
+        or wr_vid  == "" or wr_vid:find("YOUR_") then
+        return false, "not_filled"
+    end
+
+    local account = type(data.account) == "table" and data.account or {}
+    account.login_method = "manual"
+    account.login_time   = os.time()
+    account.user_vid     = wr_vid
+    if not account.name or account.name == "" or account.name:find("YOUR_") then
+        account.name = ""
+    end
+
+    self:update_auth({
+        cookies    = cookies,
+        api_key    = api_key,
+        wr_ticket  = "",
+        wr_wrpa    = "",
+        account    = account,
+    }, { replace_cookies = true })
+
+    -- Clean up the template so it is not imported again.
+    os.remove(path)
+    return true
+end
+
+-- Write a commented template file to the settings directory so the user can
+-- fill in credentials via USB without touching weread.lua directly.
+function Settings:generate_manual_login_template()
+    local path = self:get_manual_login_path()
+    local lines = {
+        "-- weread_manual_login.lua",
+        "-- 微信读书手动登录配置文件 / WeRead manual login template",
+        "--",
+        "-- 使用方法 / Usage:",
+        "-- 1. 填写以下字段（替换 YOUR_xxx 占位符）",
+        "--    Fill in the fields below (replace YOUR_xxx placeholders)",
+        "-- 2. 保存文件 / Save the file",
+        "-- 3. 重启 KOReader，插件会自动导入并删除本文件",
+        "--    Restart KOReader; the plugin will auto-import and delete this file",
+        "--",
+        "-- 获取凭证方法 / How to get credentials:",
+        "-- 1. 在电脑浏览器打开 https://weread.qq.com 并微信扫码登录",
+        "--    Open https://weread.qq.com in a browser and login with WeChat",
+        "-- 2. 按 F12 打开开发者工具 → Application → Cookies → weread.qq.com",
+        "--    Press F12 → Application → Cookies → weread.qq.com",
+        "-- 3. 复制 wr_skey、wr_vid、wr_rt 的值",
+        "--    Copy wr_skey, wr_vid, wr_rt values",
+        "-- 4. API Key：微信读书 App → 我 → 设置 → 微信读书 Skill → 获取 API Key",
+        "--    API Key: WeRead App → Me → Settings → WeRead Skill → Get API Key",
+        "",
+        "return {",
+        '    api_key = "wrk-YOUR_API_KEY",',
+        "    cookies = {",
+        '        wr_skey = "YOUR_WR_SKEY",',
+        '        wr_vid  = "YOUR_WR_VID",',
+        '        wr_rt   = "YOUR_WR_RT",',
+        "    },",
+        "    account = {",
+        '        name = "你的昵称 / Your nickname",',
+        "    },",
+        "}",
+    }
+    local file = io.open(path, "w")
+    if not file then
+        return false, "cannot_write"
+    end
+    file:write(table.concat(lines, "\n") .. "\n")
+    file:close()
+    return true
+end
+
 return Settings

@@ -1,8 +1,10 @@
 -- Reading-report settings, target selection, and statistics UI.
 local logger = require("weread.lib.logger")
+local Menu = require("ui/widget/menu")
 local ReadStats = require("weread.lib.read_stats")
 local ReadStatsView = require("weread.ui.read_stats_view")
 local UIManager = require("ui/uimanager")
+local WeRead = require("weread.lib.protocol")
 
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
@@ -74,6 +76,13 @@ function M:getReadReportMenuItems()
             callback = self:safeCallback(_("Report status"), function()
                 local cur = self.settings:get("read_report")
                 local report_status = self.read_report:status()
+                -- Real-time connectivity check: the stored state may be stale
+                -- (updated only during scheduled ticks). If the device went
+                -- offline between ticks, override to "offline".
+                if report_status.running and not self:isNetworkConnected() then
+                    self.read_report.state = "offline"
+                    report_status = self.read_report:status()
+                end
                 local target
                 if cur.mode == "auto" then
                     local auto_title = report_status.target_book_title
@@ -81,7 +90,23 @@ function M:getReadReportMenuItems()
                 else
                     target = cur.book_title ~= "" and cur.book_title or _("Not configured")
                 end
-                local status = report_status.running and _("Running") or _("Stopped")
+                local state = report_status.state
+                local status
+                if state == "offline" then
+                    status = _("Offline")
+                elseif state == "suspended" then
+                    status = _("Suspended")
+                elseif state == "waiting_for_progress" then
+                    status = _("Waiting for progress")
+                elseif state == "error" then
+                    status = _("Error")
+                elseif state == "waiting" then
+                    status = _("Waiting")
+                elseif report_status.running then
+                    status = _("Running")
+                else
+                    status = _("Stopped")
+                end
                 local count = report_status.count
                 local last = report_status.last_time
                     and os.date("%H:%M:%S", report_status.last_time) or "--"
@@ -140,27 +165,69 @@ function M:showReadReportBookPicker()
     if not self:requireLogin(true, true) then
         return
     end
-    self:refreshBookshelf(nil, {
-        mode = "books",
-        wp_enable = false,
-        title = _("Select a book to report reading time"),
-        on_select = function(book, selected_mode, view)
-            if selected_mode ~= "books" then return end
-            local book_id = book.book_id or book.bookId
-            if not book_id then return end
-            local rr = self.settings:get("read_report")
-            rr.mode = "manual"
-            rr.book_id = book_id
-            rr.book_title = book.title or book_id
-            self.settings:set("read_report", rr)
-            self.settings:flush()
-            self:stopReadReport("target_changed")
-            UIManager:close(view)
-            if self.shelf_view == view then self.shelf_view = nil end
-            self:showTransientInfo(T(_("Target book set: %1"), rr.book_title))
-            self:maybeStartReadReport()
-        end,
-    })
+    self:showBusy(_("Loading bookshelf..."))
+    self:runOnlineTask(_("Bookshelf"), function()
+        local ok, result = pcall(function()
+            return self.client:get_shelf()
+        end)
+        if not ok then
+            self:closeBusy()
+            logger.err("load report bookshelf failed:", log_error(result))
+            self:showInfo(T(_("Load bookshelf failed:\n%1"), display_error(result)))
+            return
+        end
+        self:closeBusy()
+        local all_books = type(result) == "table"
+            and type(result.books) == "table"
+            and result.books
+            or {}
+        local picker_books = {}
+        for i, book in ipairs(all_books) do
+            if not WeRead.is_mp_book(book.bookId) then
+                table.insert(picker_books, book)
+            end
+        end
+        if not picker_books or #picker_books == 0 then
+            self:showInfo(_("Your WeRead shelf is empty."))
+            return
+        end
+        local menu, buildItems
+        local function refresh()
+            menu:switchItemTable(nil, buildItems())
+        end
+        buildItems = function()
+            local items = self:shelfToolbarItems(false, refresh)
+            local sorted = self.sortBooks(picker_books, self.settings:get("shelf").sort_order)
+            for i, book in ipairs(sorted) do
+                table.insert(items, {
+                    text = book.title or book.bookId or _("Untitled"),
+                    post_text = book.author or "",
+                    callback = self:safeCallback(book.title or _("Select target book"), function()
+                        local rr = self.settings:get("read_report")
+                        rr.book_id = book.bookId
+                        rr.book_title = book.title or book.bookId
+                        self.settings:set("read_report", rr)
+                        self.settings:flush()
+                        self:stopReadReport("target_changed")
+                        if self._picker_menu then
+                            UIManager:close(self._picker_menu)
+                            self._picker_menu = nil
+                        end
+                        self:showTransientInfo(T(_("Target book set: %1"), rr.book_title))
+                        self:maybeStartReadReport()
+                    end),
+                })
+            end
+            return items
+        end
+        self._picker_menu = Menu:new{
+            title = _("Select a book to report reading time"),
+            item_table = buildItems(),
+            is_borderless = true,
+            title_bar_fm_style = true,
+        }
+        UIManager:show(self._picker_menu)
+    end)
 end
 
 function M:showReadStats()

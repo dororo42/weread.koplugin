@@ -110,7 +110,11 @@ function M:isNetworkConnected()
     end)
     if not ok_connected then
         logger.warn("network link check failed:", log_error(connected))
-        return true
+        -- Return false (not true) so background tasks (ReadReport, ProgressSync)
+        -- correctly detect offline when the link-state probe errors. UI flows
+        -- that prefer "assume online and let the request fail" use
+        -- isNetworkOnline() instead.
+        return false
     end
     return connected == true
 end
@@ -211,7 +215,14 @@ function M:showAccountStatus()
         account_name = (self.settings:is_cookie_configured() or self.settings:is_api_configured())
             and _("Unknown account") or _("Not logged in")
     end
-    local login_method = account.login_method == "qr" and _("QR login") or _("Unknown")
+    local login_method
+    if account.login_method == "qr" then
+        login_method = _("QR login")
+    elseif account.login_method == "manual" then
+        login_method = _("Manual login")
+    else
+        login_method = _("Unknown")
+    end
     local cookie_status = self.settings:is_cookie_configured() and _("configured") or _("missing")
     local api_status = self.settings:is_api_configured() and _("configured") or _("missing")
     self:showInfo(T(
@@ -232,13 +243,70 @@ function M:confirmClearAccount()
             self.qr_login:cancel()
             self.read_report:stop("account_cleared")
             self.settings:reset_account()
-            if self.onWeReadAccountChanged then
-                self:onWeReadAccountChanged()
-            end
             self:refreshLoginMenu()
             self:showInfo(_("WeRead account data cleared."))
         end),
     })
+end
+
+function M:showManualLoginGuide()
+    local guide = _([[Manual login guide:
+
+1. Select "Generate template" to create
+   weread_manual_login.lua in settings dir
+
+2. Connect Kindle via USB and edit:
+   koreader/settings/weread_manual_login.lua
+
+3. Fill in credentials (replace YOUR_xxx):
+   api_key  — WeRead API Key
+   wr_skey  — WeRead Cookie
+   wr_vid   — WeRead user ID
+   wr_rt    — Refresh token (optional)
+   name     — Your nickname (optional)
+
+4. How to get credentials:
+   a. Open https://weread.qq.com in browser
+      Login with WeChat QR
+   b. Press F12
+      Application → Cookies → weread.qq.com
+   c. Copy wr_skey, wr_vid, wr_rt values
+   d. API Key:
+      WeRead App → Me → Settings
+      → WeRead Skill → Get API Key
+
+5. Save file and restart KOReader
+   Plugin auto-imports and deletes template
+
+6. Or select "Import now" (no restart needed)]])
+    self:showInfo(guide)
+end
+
+function M:generateManualLoginTemplate()
+    local ok, err = self.settings:generate_manual_login_template()
+    if ok then
+        self:showInfo(T(_("Template generated at:\n%1\n\nConnect via USB, edit the file,\nthen restart KOReader or use \"Import now\"."),
+            self.settings:get_manual_login_path()))
+    else
+        logger.err("generate manual login template failed:", tostring(err))
+        self:showInfo(T(_("Failed to generate template: %1"), tostring(err)))
+    end
+end
+
+function M:importManualLogin()
+    local ok, err = self.settings:import_manual_login()
+    if ok then
+        self:refreshLoginMenu()
+        self:showInfo(_("Manual login imported successfully."))
+    elseif err == "not_found" then
+        self:showInfo(_("No manual login file found.\nGenerate a template first."))
+    elseif err == "not_filled" then
+        self:showInfo(_("Template not filled in.\nEdit the file and replace YOUR_xxx placeholders."))
+    elseif err == "invalid_format" then
+        self:showInfo(_("Manual login file has invalid format.\nPlease check the Lua syntax."))
+    else
+        self:showInfo(T(_("Import failed: %1"), tostring(err)))
+    end
 end
 
 return M
